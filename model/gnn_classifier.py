@@ -111,6 +111,33 @@ CUSTOM_ANCHORS = [
     ("Coimbatore is located on the eastern coast of Tamil Nadu.", 0),
     ("Coimbatore airport is the busiest airport in India.", 0),
     ("Coimbatore is the largest city in Tamil Nadu.", 0),
+
+    # ── CRICKET / SPORTS — True ──────────────────────────────────────────────
+    ("MS Dhoni is a former Indian cricket captain.", 1),
+    ("Dhoni is a cricketer.", 1),
+    ("MS Dhoni is an Indian cricketer.", 1),
+    ("Dhoni is known for his finishing skills in cricket.", 1),
+    ("MS Dhoni led India to win the 2011 Cricket World Cup.", 1),
+    ("Virat Kohli is an Indian cricketer.", 1),
+    ("Rohit Sharma is the current captain of the Indian cricket team.", 1),
+    ("Sachin Tendulkar is a legendary Indian cricketer.", 1),
+    ("Sachin Tendulkar is known as the God of Cricket.", 1),
+    ("The IPL is a professional cricket league in India.", 1),
+    ("Chennai Super Kings is MS Dhoni's IPL team.", 1),
+    ("India won the ICC Cricket World Cup in 1983 and 2011.", 1),
+    ("Jasprit Bumrah is an Indian fast bowler.", 1),
+    ("Ravindra Jadeja is an Indian all-rounder cricketer.", 1),
+    ("MS Dhoni is from Ranchi, Jharkhand.", 1),
+
+    # ── CRICKET / SPORTS — Fake ──────────────────────────────────────────────
+    ("MS Dhoni scored 100 goals in the FIFA World Cup.", 0),
+    ("Dhoni is a football player.", 0),
+    ("Virat Kohli retired from cricket in 2022.", 0),
+    ("Sachin Tendulkar never played international cricket.", 0),
+    ("India has never won the Cricket World Cup.", 0),
+    ("MS Dhoni is the current Prime Minister of India.", 0),
+    ("The IPL was banned permanently by the Supreme Court of India.", 0),
+    ("Rohit Sharma plays for the Pakistan cricket team.", 0),
 ]
 
 
