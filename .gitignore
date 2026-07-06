@@ -4,3 +4,12 @@ __pycache__/
 .venv/
 *.egg-info/
 .env
+
+# Generated model weights and embedding cache
+*.pt
+
+# Runtime BLE message store
+ble/message_store.json
+
+# Scratch / local notes
+model.txt
