@@ -148,6 +148,134 @@ CUSTOM_ANCHORS = [
     ("MS Dhoni is the current Prime Minister of India.", 0),
     ("The IPL was banned permanently by the Supreme Court of India.", 0),
     ("Rohit Sharma plays for the Pakistan cricket team.", 0),
+
+    # ── SCIENCE & SPACE — True ───────────────────────────────────────────────
+    ("The Earth orbits the Sun.", 1),
+    ("Water is made of hydrogen and oxygen.", 1),
+    ("Humans landed on the Moon in 1969.", 1),
+    ("Neil Armstrong was the first human to walk on the Moon.", 1),
+    ("Albert Einstein developed the theory of relativity.", 1),
+    ("DNA carries genetic information in living organisms.", 1),
+    ("The Sun is a star at the center of our solar system.", 1),
+    ("Mars is known as the Red Planet.", 1),
+    ("The Earth is approximately 4.5 billion years old.", 1),
+    ("The human body has 206 bones.", 1),
+    ("Gravity keeps planets in orbit around the Sun.", 1),
+    ("The speed of light is approximately 300000 km per second.", 1),
+    ("Oxygen is essential for human survival.", 1),
+    ("The Moon revolves around the Earth.", 1),
+    ("India launched Chandrayaan-3 successfully in 2023.", 1),
+
+    # ── SCIENCE & SPACE — Fake ───────────────────────────────────────────────
+    ("The Earth is flat.", 0),
+    ("Humans have never landed on the Moon.", 0),
+    ("The Sun revolves around the Earth.", 0),
+    ("Einstein failed mathematics in school.", 0),
+    ("Humans only use 10 percent of their brain.", 0),
+    ("The Great Wall of China is visible from space with the naked eye.", 0),
+    ("Oxygen is poisonous to humans.", 0),
+
+    # ── HEALTH & MEDICINE — True ─────────────────────────────────────────────
+    ("Vaccines help prevent infectious diseases.", 1),
+    ("COVID-19 is caused by the SARS-CoV-2 virus.", 1),
+    ("Regular exercise improves cardiovascular health.", 1),
+    ("Smoking causes lung cancer.", 1),
+    ("Diabetes is a condition where the body cannot regulate blood sugar.", 1),
+    ("The heart pumps blood through the body.", 1),
+    ("Washing hands regularly prevents the spread of germs.", 1),
+    ("Vitamin C is found in citrus fruits.", 1),
+    ("Iron deficiency causes anaemia.", 1),
+    ("Calcium is important for bone health.", 1),
+
+    # ── HEALTH & MEDICINE — Fake ─────────────────────────────────────────────
+    ("Drinking bleach cures COVID-19.", 0),
+    ("Vaccines cause autism.", 0),
+    ("5G towers spread COVID-19.", 0),
+    ("Vaccines contain microchips for tracking people.", 0),
+    ("Garlic completely cures cancer.", 0),
+    ("You can cure diabetes by drinking turmeric water.", 0),
+
+    # ── WORLD GEOGRAPHY — True ───────────────────────────────────────────────
+    ("The capital of France is Paris.", 1),
+    ("The capital of the United States is Washington DC.", 1),
+    ("The capital of Japan is Tokyo.", 1),
+    ("The capital of China is Beijing.", 1),
+    ("The capital of Australia is Canberra.", 1),
+    ("Mount Everest is the highest mountain in the world.", 1),
+    ("The Nile is one of the longest rivers in the world.", 1),
+    ("The Pacific Ocean is the largest ocean in the world.", 1),
+    ("Russia is the largest country in the world by area.", 1),
+    ("The Amazon rainforest is located in South America.", 1),
+    ("Australia is both a country and a continent.", 1),
+    ("The Sahara is the largest hot desert in the world.", 1),
+
+    # ── WORLD GEOGRAPHY — Fake ───────────────────────────────────────────────
+    ("The capital of Australia is Sydney.", 0),
+    ("The capital of Canada is Toronto.", 0),
+    ("The Amazon river is in Africa.", 0),
+    ("The Sahara desert is located in Asia.", 0),
+    ("Mount Everest is located entirely in China.", 0),
+    ("The Atlantic Ocean is the largest ocean in the world.", 0),
+
+    # ── WORLD HISTORY — True ─────────────────────────────────────────────────
+    ("World War II ended in 1945.", 1),
+    ("The French Revolution began in 1789.", 1),
+    ("Nelson Mandela was the first Black president of South Africa.", 1),
+    ("The Berlin Wall fell in 1989.", 1),
+    ("Mahatma Gandhi led India's independence movement.", 1),
+    ("India gained independence from British rule on 15 August 1947.", 1),
+    ("The United Nations was founded in 1945.", 1),
+
+    # ── WORLD HISTORY — Fake ─────────────────────────────────────────────────
+    ("World War II was won by Germany.", 0),
+    ("India gained independence in 1960.", 0),
+    ("Nelson Mandela was the president of Kenya.", 0),
+    ("The United Nations was founded by India.", 0),
+
+    # ── TECHNOLOGY — True ────────────────────────────────────────────────────
+    ("Google was founded by Larry Page and Sergey Brin.", 1),
+    ("Apple was co-founded by Steve Jobs.", 1),
+    ("The World Wide Web was invented by Tim Berners-Lee.", 1),
+    ("Microsoft was founded by Bill Gates and Paul Allen.", 1),
+    ("Facebook was founded by Mark Zuckerberg.", 1),
+    ("Elon Musk is the CEO of Tesla.", 1),
+    ("ChatGPT was created by OpenAI.", 1),
+    ("The first iPhone was released by Apple in 2007.", 1),
+
+    # ── TECHNOLOGY — Fake ────────────────────────────────────────────────────
+    ("Google was founded by Elon Musk.", 0),
+    ("Apple was founded by Bill Gates.", 0),
+    ("The internet was invented by Mark Zuckerberg.", 0),
+    ("Microsoft was founded by Steve Jobs.", 0),
+    ("ChatGPT was created by Google.", 0),
+
+    # ── GLOBAL SPORTS — True ─────────────────────────────────────────────────
+    ("Lionel Messi is an Argentine football player.", 1),
+    ("Cristiano Ronaldo is a Portuguese football player.", 1),
+    ("Usain Bolt is a Jamaican sprinter known as the fastest man.", 1),
+    ("The FIFA World Cup is held every four years.", 1),
+    ("Roger Federer is a Swiss tennis player.", 1),
+    ("P.V. Sindhu is an Indian badminton player.", 1),
+    ("Neeraj Chopra won gold in javelin at the 2020 Tokyo Olympics.", 1),
+    ("The Olympics are held every four years.", 1),
+
+    # ── GLOBAL SPORTS — Fake ─────────────────────────────────────────────────
+    ("Lionel Messi is from Brazil.", 0),
+    ("Usain Bolt is an Indian sprinter.", 0),
+    ("India won the FIFA World Cup in 2022.", 0),
+    ("Roger Federer is an American tennis player.", 0),
+
+    # ── ENVIRONMENT — True ───────────────────────────────────────────────────
+    ("Climate change is caused by greenhouse gas emissions.", 1),
+    ("Deforestation contributes to global warming.", 1),
+    ("Solar energy is a renewable energy source.", 1),
+    ("Plastic pollution is a major environmental problem.", 1),
+    ("Carbon dioxide is a greenhouse gas.", 1),
+
+    # ── ENVIRONMENT — Fake ───────────────────────────────────────────────────
+    ("Climate change is a hoax invented by scientists.", 0),
+    ("Burning fossil fuels has no effect on the environment.", 0),
+    ("Deforestation has no impact on climate.", 0),
 ]
 
 
