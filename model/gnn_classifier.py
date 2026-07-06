@@ -2,136 +2,150 @@
 GNN-based fake news classifier for BLE Mesh PoC.
 
 Architecture:
-  Encoder  : frozen RoBERTa backbone (jy46604790/Fake-News-Bert-Detect, already cached)
-  Graph    : query node  +  N labeled anchor nodes
-  Edges    : cosine-similarity between CLS embeddings (top-K per node, symmetrised)
+  Encoder  : frozen RoBERTa backbone (jy46604790/Fake-News-Bert-Detect, cached)
+  Dataset  : GonzaloA/fake_news (~72k articles, 0=Fake 1=True), HuggingFace
+  Graph    : query node + 400 dataset anchors + 55 custom anchors (India/TN/CBE)
+  Edges    : cosine-similarity top-K per node, symmetrised, normalised
   GNN      : 2-layer GCN (Kipf & Welling 2017)
-  Head     : linear  ->  softmax over {Fake, True}
+  Head     : linear -> softmax over {Fake, True}
 
-At inference the new BLE message is appended as the last node; its GCN output is read.
-The GCN is trained once on the anchor graph (300 epochs, ~5 s on CPU) during warm-up.
+First run  : downloads dataset, embeds 455 anchors (~2 min), trains GCN, saves to disk.
+Later runs : loads cached embeddings + weights — startup under 10 seconds.
 """
 
+import os
+import random
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from transformers import AutoTokenizer, AutoModel
 
-ENCODER_NAME = "jy46604790/Fake-News-Bert-Detect"
-EMBED_DIM = 768
-K_NEIGHBORS = 7
-GCN_HIDDEN = 256
-TRAIN_EPOCHS = 500
-LABEL_MAP = {0: "Fake", 1: "True"}
+ENCODER_NAME       = "jy46604790/Fake-News-Bert-Detect"
+EMBED_DIM          = 768
+K_NEIGHBORS        = 10
+GCN_HIDDEN         = 256
+TRAIN_EPOCHS       = 600
+N_ANCHORS_PER_CLASS = 200          # 200 Fake + 200 True = 400 anchor nodes
+LABEL_MAP          = {0: "Fake", 1: "True"}
 
-# Expanded anchor dataset – diverse domains, short facts, Indian context,
-# news headlines, science, geography, health, tech, sports
-ANCHORS = [
-    # ── FAKE (label 0) ──────────────────────────────────────────────────────
-    # Health misinformation
-    ("Drinking bleach cures COVID-19, doctors secretly admit.", 0),
-    ("Eating raw garlic every day prevents and cures all cancers.", 0),
-    ("Vaccines contain microchips that track your location.", 0),
-    ("Hospitals are secretly giving patients poison instead of medicine.", 0),
-    ("Onion placed in a room absorbs and kills all viruses.", 0),
-    # Tech / science fake
-    ("5G towers are spreading a mind-control virus across cities.", 0),
-    ("Scientists prove the Earth is actually flat, NASA confirms.", 0),
-    ("Moon landing in 1969 was entirely staged in a Hollywood studio.", 0),
-    ("Ancient aliens built the Egyptian pyramids, leaked NASA files show.", 0),
-    ("NASA confirms humans successfully landed on Mars in 2025.", 0),
-    ("Scientists have discovered that time travel is now possible.", 0),
-    ("Government replaced all birds with surveillance drones in 2001.", 0),
-    # Political / conspiracy fake
-    ("Bill Gates admitted to planning a global population reduction program.", 0),
-    ("The government is secretly controlling weather using HAARP machines.", 0),
-    ("World leaders are secretly reptilian aliens disguised as humans.", 0),
-    ("Elections are rigged by microchips hidden inside voting machines.", 0),
-    # Indian fake news
-    ("India banned all imported foreign goods starting next month.", 0),
-    ("Indian government announced free gold for all citizens below poverty line.", 0),
-    ("Taj Mahal was originally a Hindu temple called Tejo Mahalaya, government confirms.", 0),
-    ("India will become the richest country in the world by 2025, IMF confirms.", 0),
-    ("Cricket is officially banned in India due to match fixing.", 0),
-    # General sensational fake
-    ("Scientist discovers immortality pill, government suppressing the news.", 0),
-    ("Chocolate and sugar officially declared more addictive than cocaine.", 0),
-    ("Sunlight causes instant cancer, WHO issues global warning.", 0),
-    ("Drinking hot water cures diabetes permanently within seven days.", 0),
+MODEL_DIR    = os.path.dirname(os.path.abspath(__file__))
+CACHE_PATH   = os.path.join(MODEL_DIR, "anchor_cache.pt")
+WEIGHTS_PATH = os.path.join(MODEL_DIR, "gcn_weights.pt")
 
-    # ── TRUE (label 1) ──────────────────────────────────────────────────────
-    # Geography and general facts
-    ("India is home to the Taj Mahal, located in Agra.", 1),
-    ("The Taj Mahal is a UNESCO World Heritage Site built by Mughal emperor Shah Jahan.", 1),
-    ("Paris is the capital city of France.", 1),
-    ("The Great Wall of China stretches thousands of kilometres across northern China.", 1),
-    ("Mount Everest is the highest mountain in the world.", 1),
-    ("Water boils at 100 degrees Celsius at standard atmospheric pressure.", 1),
-    ("The Earth orbits the Sun once every 365 days.", 1),
-    ("The human body has 206 bones in total.", 1),
-    # Indian news and facts
-    ("India launched Chandrayaan-3 successfully to the Moon in 2023.", 1),
-    ("India's GDP growth rate was among the highest in the world in 2023.", 1),
-    ("The Indian Space Research Organisation is headquartered in Bengaluru.", 1),
-    ("India won the ICC Cricket World Cup in 2011 under MS Dhoni's captaincy.", 1),
+DATASET_NAME = "GonzaloA/fake_news"   # 0 = Fake, 1 = True, ~72k samples
+
+# ── Custom domain anchors ─────────────────────────────────────────────────────
+# Added on top of dataset anchors to improve accuracy on Indian / TN / Coimbatore facts
+CUSTOM_ANCHORS = [
+
+    # ── INDIA — True ─────────────────────────────────────────────────────────
+    ("Narendra Modi is the Prime Minister of India.", 1),
+    ("PM of India is Modi.", 1),
+    ("Droupadi Murmu is the President of India.", 1),
+    ("The capital of India is New Delhi.", 1),
+    ("India has 28 states and 8 union territories.", 1),
+    ("India won independence from British rule on 15th August 1947.", 1),
+    ("India is the world's largest democracy.", 1),
+    ("The national currency of India is the Indian Rupee.", 1),
+    ("The Reserve Bank of India is the central bank of India.", 1),
+    ("India launched Chandrayaan-3 to the Moon in 2023.", 1),
     ("India has the largest population in the world as of 2023.", 1),
-    ("Virat Kohli scored his 50th ODI century during an international match.", 1),
-    # Tech and science news
-    ("Apple released the iPhone 16 in September 2024.", 1),
-    ("Microsoft acquired Activision Blizzard for approximately 69 billion dollars.", 1),
-    ("Scientists detected gravitational waves from two colliding black holes.", 1),
-    ("Researchers published new Alzheimer's treatment findings in the journal Nature.", 1),
-    ("The James Webb Space Telescope captured its first full-colour images in 2022.", 1),
-    # World and economy news
-    ("The Federal Reserve raised interest rates by 0.25 percent.", 1),
-    ("The United Nations held an emergency summit on climate change.", 1),
-    ("WHO declared COVID-19 a global pandemic in March 2020.", 1),
-    ("Global electric vehicle sales surpassed 10 million units in 2023.", 1),
-    ("The Supreme Court issued a ruling on the immigration case.", 1),
-    ("The unemployment rate fell to 3.8 percent last quarter.", 1),
+    ("India's space agency is called ISRO.", 1),
+    ("The Supreme Court of India is located in New Delhi.", 1),
+    ("Hindi and English are the official languages of the Indian government.", 1),
+
+    # ── INDIA — Fake ─────────────────────────────────────────────────────────
+    ("Rahul Gandhi is the current Prime Minister of India.", 0),
+    ("India has 35 states as per the new 2024 constitution.", 0),
+    ("India launched a crewed mission to Mars in 2024.", 0),
+    ("The Indian government banned all social media platforms permanently.", 0),
+    ("India's GDP overtook the USA to become number one in 2024.", 0),
+    ("India declared itself a republic only in 2010.", 0),
+    ("The capital of India was moved from Delhi to Mumbai in 2023.", 0),
+
+    # ── TAMIL NADU — True ────────────────────────────────────────────────────
+    ("M.K. Stalin is the Chief Minister of Tamil Nadu.", 1),
+    ("The Chief Minister of Tamil Nadu is M.K. Stalin.", 1),
+    ("Tamil Nadu CM is Stalin.", 1),
+    ("The capital of Tamil Nadu is Chennai.", 1),
+    ("Tamil Nadu has 38 districts.", 1),
+    ("Tamil is the official language of Tamil Nadu.", 1),
+    ("IIT Madras is located in Chennai, Tamil Nadu.", 1),
+    ("Tamil Nadu was formerly known as Madras State.", 1),
+    ("The Kaveri river flows through Tamil Nadu.", 1),
+    ("Anna University is a technical university in Chennai, Tamil Nadu.", 1),
+    ("Tamil Nadu is known as the land of temples.", 1),
+    ("Chennai Super Kings is a cricket team based in Tamil Nadu.", 1),
+    ("The DMK party is currently in power in Tamil Nadu.", 1),
+    ("Tamil Nadu borders Kerala, Karnataka, and Andhra Pradesh.", 1),
+
+    # ── TAMIL NADU — Fake ────────────────────────────────────────────────────
+    ("Vijay is the Chief Minister of Tamil Nadu.", 0),
+    ("CM of TN is Vijay.", 0),
+    ("Rajinikanth became the Chief Minister of Tamil Nadu.", 0),
+    ("Kamal Haasan is the current Chief Minister of Tamil Nadu.", 0),
+    ("AIADMK won the 2021 Tamil Nadu assembly elections.", 0),
+    ("Tamil Nadu declared independence from India in 2023.", 0),
+    ("The capital of Tamil Nadu was moved to Madurai in 2024.", 0),
+    ("Tamil Nadu has 50 districts as of 2024.", 0),
+    ("Thalapathy Vijay is governing Tamil Nadu as Chief Minister.", 0),
+
+    # ── COIMBATORE — True ────────────────────────────────────────────────────
+    ("Coimbatore is known as the Manchester of South India.", 1),
+    ("Coimbatore is a major textile and engineering hub in Tamil Nadu.", 1),
+    ("PSG College of Technology is located in Coimbatore.", 1),
+    ("Amrita Vishwa Vidyapeetham has a campus in Coimbatore.", 1),
+    ("Coimbatore is the second largest city in Tamil Nadu.", 1),
+    ("Coimbatore district shares a border with Kerala.", 1),
+    ("The Nilgiris district is adjacent to Coimbatore.", 1),
+    ("SITRA, South India Textile Research Association, is based in Coimbatore.", 1),
+    ("Coimbatore is home to many textile mills and engineering companies.", 1),
+    ("The Kovai Pazham banana from Coimbatore is famous across Tamil Nadu.", 1),
+    ("Coimbatore has a domestic airport called Coimbatore International Airport.", 1),
+    ("GRD College and Kongu Engineering College are in Coimbatore.", 1),
+
+    # ── COIMBATORE — Fake ────────────────────────────────────────────────────
+    ("Coimbatore is the capital city of Tamil Nadu.", 0),
+    ("Coimbatore was renamed to Kovai City by the Tamil Nadu government in 2024.", 0),
+    ("Coimbatore has a fully operational metro rail system since 2023.", 0),
+    ("Coimbatore is located on the eastern coast of Tamil Nadu.", 0),
+    ("Coimbatore airport is the busiest airport in India.", 0),
+    ("Coimbatore is the largest city in Tamil Nadu.", 0),
 ]
 
 
-# ---------------------------------------------------------------------------
-# Graph utilities
-# ---------------------------------------------------------------------------
+# ── Graph utilities ───────────────────────────────────────────────────────────
 
 def _normalize_adj(A: torch.Tensor) -> torch.Tensor:
-    """Symmetric normalisation: D^{-1/2} A D^{-1/2}"""
     deg = A.sum(dim=1).clamp(min=1e-6)
-    d = deg ** -0.5
+    d   = deg ** -0.5
     return d.unsqueeze(1) * A * d.unsqueeze(0)
 
 
-def _build_adj(embeddings: torch.Tensor) -> torch.Tensor:
-    """Cosine-similarity graph with top-K edges + self-loops, then normalised."""
-    n = embeddings.size(0)
-    norms = F.normalize(embeddings, p=2, dim=1)
-    sim = (norms @ norms.T + 1.0) / 2.0          # scale to [0, 1]
-
-    A = torch.zeros_like(sim)
-    k = min(K_NEIGHBORS, n - 1)
+def _build_adj(embeddings: torch.Tensor, k: int) -> torch.Tensor:
+    n    = embeddings.size(0)
+    nrm  = F.normalize(embeddings, p=2, dim=1)
+    sim  = (nrm @ nrm.T + 1.0) / 2.0
+    A    = torch.zeros_like(sim)
+    kk   = min(k, n - 1)
     for i in range(n):
-        row = sim[i].clone()
-        row[i] = -1.0                              # exclude self from top-K
-        top_idx = torch.topk(row, k).indices
+        row       = sim[i].clone()
+        row[i]    = -1.0
+        top_idx   = torch.topk(row, kk).indices
         A[i, top_idx] = sim[i, top_idx]
-
-    A = (A + A.T) / 2.0                           # symmetrise
-    A = A + torch.eye(n)                           # self-loops
+    A = (A + A.T) / 2.0
+    A = A + torch.eye(n)
     return _normalize_adj(A)
 
 
-# ---------------------------------------------------------------------------
-# GCN model
-# ---------------------------------------------------------------------------
+# ── GCN model ─────────────────────────────────────────────────────────────────
 
 class _GCNLayer(nn.Module):
     def __init__(self, in_dim: int, out_dim: int):
         super().__init__()
         self.W = nn.Linear(in_dim, out_dim, bias=False)
 
-    def forward(self, H: torch.Tensor, A_hat: torch.Tensor) -> torch.Tensor:
+    def forward(self, H, A_hat):
         return F.relu(A_hat @ self.W(H))
 
 
@@ -141,96 +155,179 @@ class _FakeNewsGCN(nn.Module):
         self.gcn1 = _GCNLayer(EMBED_DIM, GCN_HIDDEN)
         self.gcn2 = _GCNLayer(GCN_HIDDEN, GCN_HIDDEN // 2)
         self.out  = nn.Linear(GCN_HIDDEN // 2, 2)
-        self.drop = nn.Dropout(0.3)
+        self.drop = nn.Dropout(0.4)
 
-    def forward(self, H: torch.Tensor, A_hat: torch.Tensor) -> torch.Tensor:
+    def forward(self, H, A_hat):
         h = self.drop(self.gcn1(H, A_hat))
         h = self.drop(self.gcn2(h, A_hat))
         return self.out(h)
 
 
-# ---------------------------------------------------------------------------
-# Main classifier class
-# ---------------------------------------------------------------------------
+# ── Main classifier ───────────────────────────────────────────────────────────
 
 class BLEMeshGNNClassifier:
-    """Singleton – loaded once, reused for every BLE message."""
 
     def __init__(self):
-        self._tok  = None
-        self._enc  = None
-        self._gcn  = None
-        self._anc_emb   = None   # (N, 768) – frozen after training
-        self._anc_label = None   # (N,) long
+        self._tok      = None
+        self._enc      = None
+        self._gcn      = None
+        self._anc_emb  = None
+        self._anc_lbl  = None
 
-    # ------------------------------------------------------------------
+    # ── encoder ──────────────────────────────────────────────────────────────
+
     def _load_encoder(self):
         if self._tok is not None:
             return
-        print("  Loading RoBERTa encoder (cached)...")
+        print("  Loading RoBERTa encoder...")
         self._tok = AutoTokenizer.from_pretrained(ENCODER_NAME)
         self._enc = AutoModel.from_pretrained(ENCODER_NAME, ignore_mismatched_sizes=True)
         self._enc.eval()
 
     @torch.no_grad()
     def _embed(self, texts: list) -> torch.Tensor:
-        inputs = self._tok(
-            texts, return_tensors="pt",
-            truncation=True, padding=True, max_length=512,
-        )
+        inputs = self._tok(texts, return_tensors="pt",
+                           truncation=True, padding=True, max_length=512)
         out = self._enc(**inputs)
-        return out.last_hidden_state[:, 0, :]     # CLS token  (B, 768)
+        return out.last_hidden_state[:, 0, :]
 
-    # ------------------------------------------------------------------
-    def _train_gcn(self):
-        texts  = [a[0] for a in ANCHORS]
-        labels = torch.tensor([a[1] for a in ANCHORS], dtype=torch.long)
+    @torch.no_grad()
+    def _embed_batched(self, texts: list, batch_size: int = 32) -> torch.Tensor:
+        parts = []
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i: i + batch_size]
+            parts.append(self._embed(batch))
+            print(f"    Embedded {min(i + batch_size, len(texts))}/{len(texts)}", end="\r")
+        print()
+        return torch.cat(parts, dim=0)
 
-        print(f"  Embedding {len(texts)} anchor nodes...")
-        embs = self._embed(texts).detach()
-        self._anc_emb   = embs
-        self._anc_label = labels
+    # ── Dataset anchors ──────────────────────────────────────────────────────
 
-        A_hat = _build_adj(embs)
+    def _load_dataset(self):
+        from datasets import load_dataset
+        print(f"  Loading {DATASET_NAME} from HuggingFace...")
+        ds = load_dataset(DATASET_NAME, split="train")
 
-        print(f"  Training GCN ({TRAIN_EPOCHS} epochs on anchor graph)...")
+        fake_texts, true_texts = [], []
+        for sample in ds:
+            label = int(sample["label"])
+            text  = (sample.get("text") or sample.get("title") or "").strip()
+            if not text:
+                continue
+            if label == 0:
+                fake_texts.append(text)
+            elif label == 1:
+                true_texts.append(text)
+
+        random.seed(42)
+        random.shuffle(fake_texts)
+        random.shuffle(true_texts)
+
+        n = N_ANCHORS_PER_CLASS
+        anc_texts  = fake_texts[:n] + true_texts[:n]
+        anc_labels = [0] * n        + [1] * n
+
+        # Append custom Indian / TN / Coimbatore anchors
+        custom_texts  = [a[0] for a in CUSTOM_ANCHORS]
+        custom_labels = [a[1] for a in CUSTOM_ANCHORS]
+        anc_texts  += custom_texts
+        anc_labels += custom_labels
+
+        n_custom = len(CUSTOM_ANCHORS)
+        print(f"  Anchors: {n} Fake + {n} True (dataset) + {n_custom} custom (India/TN/Coimbatore) = {2*n + n_custom} total")
+        return anc_texts, anc_labels
+
+    # ── training ─────────────────────────────────────────────────────────────
+
+    def _train(self, texts, labels):
+        print(f"  Embedding {len(texts)} anchor nodes (this takes ~2 min on CPU)...")
+        embs = self._embed_batched(texts)
+        lbl  = torch.tensor(labels, dtype=torch.long)
+
+        self._anc_emb = embs.detach()
+        self._anc_lbl = lbl
+
+        A_hat = _build_adj(embs.detach(), K_NEIGHBORS)
         self._gcn = _FakeNewsGCN()
-        opt = torch.optim.Adam(self._gcn.parameters(), lr=5e-3, weight_decay=5e-4)
+        opt = torch.optim.Adam(self._gcn.parameters(), lr=3e-3, weight_decay=1e-3)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=TRAIN_EPOCHS)
 
+        print(f"  Training GCN ({TRAIN_EPOCHS} epochs)...")
         self._gcn.train()
         for epoch in range(TRAIN_EPOCHS):
             opt.zero_grad()
-            logits = self._gcn(embs, A_hat)
-            loss   = F.cross_entropy(logits, labels)
+            logits = self._gcn(embs.detach(), A_hat)
+            loss   = F.cross_entropy(logits, lbl)
             loss.backward()
             opt.step()
+            scheduler.step()
 
         self._gcn.eval()
         with torch.no_grad():
             preds = self._gcn(embs, A_hat).argmax(dim=1)
-        acc = (preds == labels).float().mean().item() * 100
+        acc = (preds == lbl).float().mean().item() * 100
         print(f"  Anchor-graph training accuracy: {acc:.1f}%")
 
-    # ------------------------------------------------------------------
+        # ── Pruning: remove 20% of smallest weights ───────────────────────
+        import torch.nn.utils.prune as prune
+        for module in [self._gcn.gcn1.W, self._gcn.gcn2.W, self._gcn.out]:
+            prune.l1_unstructured(module, name="weight", amount=0.2)
+            prune.remove(module, "weight")
+        print("  Pruning applied (20% weights removed).")
+
+        # ── Quantization: float32 → int8 (reduces size ~4x) ──────────────
+        self._gcn = torch.quantization.quantize_dynamic(
+            self._gcn, {torch.nn.Linear}, dtype=torch.qint8
+        )
+        size_mb = self._model_size_mb(self._gcn)
+        print(f"  Quantized to int8. Model size: {size_mb:.2f} MB")
+
+        # save to disk
+        torch.save({"emb": self._anc_emb, "lbl": self._anc_lbl}, CACHE_PATH)
+        # save pre-quantization weights for reloading
+        torch.save(self._gcn, WEIGHTS_PATH)
+        print("  Weights saved to disk.")
+
+    @staticmethod
+    def _model_size_mb(model) -> float:
+        import io
+        buf = io.BytesIO()
+        torch.save(model, buf)
+        return buf.tell() / (1024 * 1024)
+
+    def _load_from_disk(self):
+        cache = torch.load(CACHE_PATH, weights_only=True)
+        self._anc_emb = cache["emb"]
+        self._anc_lbl = cache["lbl"]
+        self._gcn = torch.load(WEIGHTS_PATH, weights_only=False)
+        self._gcn.eval()
+        size_mb = self._model_size_mb(self._gcn)
+        print(f"  Loaded cached weights from disk. Model size: {size_mb:.2f} MB")
+
+    # ── public API ────────────────────────────────────────────────────────────
+
     def load(self):
         self._load_encoder()
-        self._train_gcn()
+        if os.path.exists(CACHE_PATH) and os.path.exists(WEIGHTS_PATH):
+            self._load_from_disk()
+        else:
+            texts, labels = self._load_dataset()
+            self._train(texts, labels)
 
     def classify(self, text: str) -> dict:
         if self._gcn is None:
             self.load()
 
-        query_emb = self._embed([text])                         # (1, 768)
-        all_embs  = torch.cat([self._anc_emb, query_emb], dim=0)   # (N+1, 768)
-        A_hat     = _build_adj(all_embs)
+        query_emb = self._embed([text])
+        all_embs  = torch.cat([self._anc_emb, query_emb], dim=0)
+        A_hat     = _build_adj(all_embs, K_NEIGHBORS)
 
         with torch.no_grad():
             logits = self._gcn(all_embs, A_hat)
 
-        query_logits = logits[-1]                               # query node
-        probs        = F.softmax(query_logits, dim=0)
-        pred_idx     = int(probs.argmax())
-        confidence   = round(float(probs[pred_idx]) * 100, 2)
+        probs      = F.softmax(logits[-1], dim=0)
+        pred_idx   = int(probs.argmax())
+        confidence = round(float(probs[pred_idx]) * 100, 2)
 
         return {
             "message":    text,
@@ -239,16 +336,12 @@ class BLEMeshGNNClassifier:
         }
 
 
-# ---------------------------------------------------------------------------
-# Module-level singletons – same interface as the old classifier.py
-# ---------------------------------------------------------------------------
+# ── Singleton ─────────────────────────────────────────────────────────────────
 
 _instance = BLEMeshGNNClassifier()
 
-
 def load_classifier():
     _instance.load()
-
 
 def classify(text: str) -> dict:
     return _instance.classify(text)
